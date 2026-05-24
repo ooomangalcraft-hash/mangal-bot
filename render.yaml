@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mangal-craft-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 8833204061:AAHhI53Hk6-C2_f8B1gnBUPB5uf_AeMCsmY
+      - key: ADMIN_USERNAME
+        value: SVKolosov
+      - key: CSV_PATH
+        value: store.csv
+      - key: PORT
+        value: 8000
+    autoDeploy: true
