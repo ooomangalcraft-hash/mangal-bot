@@ -1,9 +1,8 @@
 import logging
 import os
 import asyncio
-import threading
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart, Command
 from config import BOT_TOKEN, ADMIN_USERNAME, ESCALATION_KEYWORDS, CONFIDENCE_THRESHOLD, CSV_PATH
 from kb_loader import ProductKB
 from fastapi import FastAPI
@@ -13,11 +12,18 @@ import uvicorn
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-kb = ProductKB(CSV_PATH)
 
-# === Логика поиска ===
+# Инициализация базы знаний
+try:
+    kb = ProductKB(CSV_PATH)
+    logging.info(f"✅ База знаний загружена. Товаров: {len(kb.products)}")
+except Exception as e:
+    logging.error(f"❌ Ошибка загрузки базы: {e}")
+    kb = None
+
 def calculate_confidence(query: str, results: list) -> float:
-    if not results: return 0.0
+    if not results: 
+        return 0.0
     q_words = set(kb.normalize(query).split())
     best = results[0]
     title = kb.normalize(best.get('Title', ''))
@@ -26,30 +32,62 @@ def calculate_confidence(query: str, results: list) -> float:
 
 def needs_escalation(query: str, confidence: float) -> bool:
     query_lower = query.lower()
-    if any(kw in query_lower for kw in ESCALATION_KEYWORDS): return True
-    if confidence < CONFIDENCE_THRESHOLD: return True
+    if any(kw in query_lower for kw in ESCALATION_KEYWORDS): 
+        return True
+    if confidence < CONFIDENCE_THRESHOLD: 
+        return True
     return False
 
-# === Обработчики ===
+# === ОБРАБОТЧИКИ (важен порядок!) ===
+
 @dp.message(CommandStart)
 async def cmd_start(message: types.Message):
+    """Обработчик команды /start"""
+    logging.info(f"Получена команда /start от {message.from_user.id}")
     await message.answer(
         "👋 Привет! Я бот-помощник *Mangal Craft*.\n\n"
-        "Спрашивайте про шампуры, деревья, вертела и аксессуары.\n"
+        "Спрашивайте про шампуры, шашлычные деревья, вертела и аксессуары.\n"
         "Примеры:\n• Какие шампуры для люля?\n• Есть чехлы?\n• Цена дерева №3?\n\n"
-        "Если не найду ответ — подключу оператора 👨‍",
+        "Если не найду ответ — подключу оператора 👨‍🔧",
         parse_mode="Markdown"
     )
 
-@dp.message()
-async def handle_message(message: types.Message):
-    user_query = message.text
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    """Обработчик команды /help"""
+    await message.answer(
+        "📚 Доступные команды:\n"
+        "/start - Запустить бота\n"
+        "/help - Помощь\n\n"
+        "Или просто напишите вопрос о товарах!"
+    )
+
+@dp.message(F.text)
+async def handle_text(message: types.Message):
+    """Обработчик текстовых сообщений"""
+    if kb is None:
+        logging.error("База знаний не загружена!")
+        await message.answer("⚠️ Ошибка: база знаний не загружена. Обратитесь к администратору.")
+        return
+
+    user_query = message.text.strip()
+    logging.info(f"Получен вопрос от {message.from_user.id}: {user_query}")
+    
+    # Поиск в базе
+    try:
+        results = kb.search(user_query, top_k=3)
+        confidence = calculate_confidence(user_query, results)
+        logging.info(f"Найдено {len(results)} товаров, уверенность: {confidence:.2f}")
+    except Exception as e:
+        logging.error(f"Ошибка поиска: {e}")
+        await message.answer("❌ Произошла ошибка при поиске. Попробуйте позже.")
+        return
+    
     user_info = f"@{message.from_user.username}" if message.from_user.username else f"{message.from_user.first_name} (ID:{message.from_user.id})"
     
-    results = kb.search(user_query, top_k=3)
-    confidence = calculate_confidence(user_query, results)
-    
+    # Проверка на эскалацию
     if needs_escalation(user_query, confidence):
+        logging.info(f"Эскалация запроса: {user_query}")
         try:
             await bot.send_message(
                 chat_id=ADMIN_USERNAME,
@@ -62,20 +100,26 @@ async def handle_message(message: types.Message):
             await message.answer("⚠️ Не удалось связаться с оператором. Напишите @SVKolosov")
         return
     
+    # Ответ с товарами
     if results:
         answer = "🔍 Нашёл варианты:\n\n"
         for p in results:
             answer += kb.format_product(p) + "\n\n"
         await message.answer(answer, parse_mode="Markdown")
     else:
-        await message.answer("🤔 Пока не нашёл точного ответа. Переформулируйте или напишите «оператор».", reply_to_message_id=message.message_id)
+        await message.answer(
+            "🤔 Пока не нашёл точного ответа. Попробуйте:\n"
+            "• Переформулировать вопрос\n"
+            "• Написать «оператор» для связи с человеком",
+            reply_to_message_id=message.message_id
+        )
 
-# === FastAPI (Веб-сервер для Render) ===
+# === FastAPI (веб-сервер для Render) ===
 app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "bot": "Mangal Craft Bot is running"}
+    return {"status": "ok", "bot": "Mangal Craft Bot is running", "products": len(kb.products) if kb else 0}
 
 @app.get("/health")
 async def health():
@@ -86,15 +130,17 @@ async def start_bot():
     logging.info("🚀 Запуск бота...")
     await dp.start_polling(bot)
 
-def run_server():
-    port = int(os.getenv("PORT", 8000))
-    logging.info(f"🌐 Запуск веб-сервера на порту {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
 if __name__ == "__main__":
-    # 1. Запускаем веб-сервер в ФОНОВОМ потоке (daemon=True)
+    import threading
+    
+    # Веб-сервер в фоновом потоке
+    def run_server():
+        port = int(os.getenv("PORT", 8000))
+        logging.info(f"🌐 Запуск веб-сервера на порту {port}...")
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
     
-    # 2. Запускаем бота в ГЛАВНОМ потоке (это исправляет ошибку Python 3.14)
+    # Бот в главном потоке
     asyncio.run(start_bot())
