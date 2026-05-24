@@ -40,10 +40,10 @@ def needs_escalation(query: str, confidence: float) -> bool:
 
 # === ОБРАБОТЧИКИ ===
 
+# 1. Обработчик ТОЛЬКО команды /start
 @dp.message(CommandStart)
 async def cmd_start(message: types.Message):
-    """Обработчик команды /start"""
-    logging.info(f"🚀 /start от {message.from_user.id}")
+    logging.info(f"🚀 Команда /start от {message.from_user.id}")
     await message.answer(
         "👋 Привет! Я бот-помощник 🔥 Mangal Craft.\n\n"
         "Спрашивайте про шампуры, шашлычные деревья и вертела\n\n"
@@ -54,85 +54,71 @@ async def cmd_start(message: types.Message):
         parse_mode="Markdown"
     )
 
+# 2. Обработчик ЛЮБОГО текста (кроме команд)
 @dp.message(F.text)
-async def handle_text(message: types.Message):
-    """Обработчик всех текстовых сообщений"""
+async def handle_message(message: types.Message):
     if kb is None:
+        logging.error("❌ База знаний НЕ загружена!")
         await message.answer("⚠️ Ошибка: база знаний не загружена.")
         return
 
     user_query = message.text.strip()
-    logging.info(f"💬 Вопрос от {message.from_user.id}: {user_query}")
+    logging.info(f"💬 Текст от {message.from_user.id}: {user_query}")
     
-    # Поиск в базе
+    # Поиск
     try:
         results = kb.search(user_query, top_k=3)
         confidence = calculate_confidence(user_query, results)
+        logging.info(f"🔍 Найдено {len(results)} товаров, уверенность: {confidence:.2f}")
     except Exception as e:
         logging.error(f"❌ Ошибка поиска: {e}")
-        await message.answer("❌ Произошла ошибка. Попробуйте позже.")
+        await message.answer("❌ Ошибка при поиске.")
         return
     
-    # Проверка на эскалацию (оператор / низкая уверенность)
+    # Эскалация
     if needs_escalation(user_query, confidence):
         user_info = f"@{message.from_user.username}" if message.from_user.username else f"{message.from_user.first_name}"
         logging.info(f"🔔 Эскалация: {user_query}")
         try:
             await bot.send_message(
                 chat_id=ADMIN_USERNAME,
-                text=f"🔔 *Запрос на оператора*\n👤 Клиент: {user_info}\n❓ Вопрос: {user_query}\n🤖 Уверенность: {confidence:.2f}",
+                text=f"🔔 *Запрос*\n👤 {user_info}\n❓ {user_query}",
                 parse_mode="Markdown"
             )
-            await message.answer("👨‍ Сейчас подключу специалиста! Ожидайте.", reply_to_message_id=message.message_id)
+            await message.answer("👨‍🔧 Подключаю оператора...")
         except Exception as e:
-            logging.error(f"❌ Не удалось уведомить админа: {e}")
-            await message.answer("⚠️ Не удалось связаться с оператором. Напишите @SVKolosov")
+            logging.error(f"❌ Ошибка уведомления: {e}")
         return
     
-    # Ответ с товарами
+    # Результат
     if results:
-        answer = "🔍 Нашёл варианты:\n\n"
+        answer = "🔍 Нашёл:\n\n"
         for p in results:
             answer += kb.format_product(p) + "\n\n"
         await message.answer(answer, parse_mode="Markdown")
     else:
-        await message.answer(
-            "🤔 Пока не нашёл точного ответа.\n"
-            "Попробуйте переформулировать или напишите «оператор».",
-            reply_to_message_id=message.message_id
-        )
+        await message.answer("🤔 Не нашёл. Напишите «оператор».")
 
-# === FastAPI (веб-сервер для Render) ===
+# === FastAPI ===
 app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "bot": "Mangal Craft Bot is running", "products": len(kb.products) if kb else 0}
-
-@app.get("/health")
-async def health():
-    return {"status": "alive"}
+    return {"status": "ok", "products": len(kb.products) if kb else 0}
 
 # === Запуск ===
 async def start_bot():
-    logging.info("🚀 Запуск polling...")
-    # Принудительно удаляем webhook
+    logging.info("🚀 Запуск...")
     await bot.delete_webhook(drop_pending_updates=True)
-    # Ждём 2 секунды перед стартом
     await asyncio.sleep(2)
     await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
     import threading
     
-    # Веб-сервер в фоновом потоке
     def run_server():
         port = int(os.getenv("PORT", 8000))
-        logging.info(f"🌐 Веб-сервер на порту {port}")
         uvicorn.run(app, host="0.0.0.0", port=port)
     
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-    
-    # Бот в главном потоке
+    threading.Thread(target=run_server, daemon=True).start()
     asyncio.run(start_bot())
