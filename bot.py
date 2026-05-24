@@ -83,7 +83,7 @@ async def handle_text(message: types.Message):
                 text=f"🔔 *Запрос на оператора*\n👤 Клиент: {user_info}\n❓ Вопрос: {user_query}\n🤖 Уверенность: {confidence:.2f}",
                 parse_mode="Markdown"
             )
-            await message.answer("👨‍🔧 Сейчас подключу специалиста! Ожидайте.", reply_to_message_id=message.message_id)
+            await message.answer("👨‍ Сейчас подключу специалиста! Ожидайте.", reply_to_message_id=message.message_id)
         except Exception as e:
             logging.error(f"❌ Не удалось уведомить админа: {e}")
             await message.answer("⚠️ Не удалось связаться с оператором. Напишите @SVKolosov")
@@ -116,7 +116,12 @@ async def health():
 # === Запуск ===
 async def start_bot():
     logging.info("🚀 Запуск polling...")
-    # drop_pending_updates=True — критически важно для избежания конфликтов!
+    # Принудительно удаляем webhook и сбрасываем все обновления
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.storage.close()
+    await dp.storage.erase()
+    # Ждём 3 секунды перед стартом
+    await asyncio.sleep(3)
     await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
