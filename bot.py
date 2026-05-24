@@ -116,12 +116,10 @@ async def health():
 # === Запуск ===
 async def start_bot():
     logging.info("🚀 Запуск polling...")
-    # Принудительно удаляем webhook и сбрасываем все обновления
+    # Принудительно удаляем webhook
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.storage.close()
-    await dp.storage.erase()
-    # Ждём 3 секунды перед стартом
-    await asyncio.sleep(3)
+    # Ждём 2 секунды перед стартом
+    await asyncio.sleep(2)
     await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
