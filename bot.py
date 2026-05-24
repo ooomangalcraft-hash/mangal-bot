@@ -1,17 +1,12 @@
 """
 bot.py — Mangal Craft Telegram Bot
 Render.com (бесплатный тариф) + aiogram 3.x + FastAPI
-
-Архитектура:
-  - FastAPI-сервер держит процесс живым (Render требует открытый порт)
-  - Polling запускается в отдельном asyncio-task ВНУТРИ того же event loop
-  - Единственный процесс гарантируется флагом _polling_started + threading.Lock
-  - При старте сбрасывается любой старый webhook и pending updates
 """
 
 import asyncio
 import logging
 import os
+import re
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -145,6 +140,11 @@ async def handle_text(message: Message) -> None:
         description = item.get("Description", "")
         sku = item.get("SKU", "")
 
+        # Убираем HTML-теги из описания (<br>, <p> и др.)
+        clean_desc = re.sub(r'<[^>]+>', ' ', str(description or '')).strip()
+        # Убираем лишние пробелы
+        clean_desc = re.sub(r'\s+', ' ', clean_desc)
+
         try:
             price_str = f"{int(float(price)):,} ₽".replace(",", " ")
         except (ValueError, TypeError):
@@ -153,8 +153,8 @@ async def handle_text(message: Message) -> None:
         block = f"<b>{i}. {name}</b>\n💰 {price_str}"
         if sku:
             block += f"\n🏷️ Арт: {sku}"
-        if description:
-            desc_short = str(description)[:150] + "…" if len(str(description)) > 150 else str(description)
+        if clean_desc:
+            desc_short = clean_desc[:150] + "…" if len(clean_desc) > 150 else clean_desc
             block += f"\n📝 {desc_short}"
         response_lines.append(block)
 
@@ -293,6 +293,6 @@ if __name__ == "__main__":
         "bot:app",
         host="0.0.0.0",
         port=port,
-        workers=1,  # ОБЯЗАТЕЛЬНО — иначе конфликт polling
+        workers=1,
         log_level="info",
     )
