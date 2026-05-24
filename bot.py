@@ -1,122 +1,320 @@
+"""
+bot.py — Mangal Craft Telegram Bot
+Render.com (бесплатный тариф) + aiogram 3.x + FastAPI
+
+Архитектура:
+  - FastAPI-сервер держит процесс живым (Render требует открытый порт)
+  - Polling запускается в отдельном asyncio-task ВНУТРИ того же event loop
+  - Единственный процесс гарантируется флагом _BOT_STARTED + asyncio.Event
+  - При старте сбрасывается любой старый webhook и pending updates
+"""
+
+import asyncio
 import logging
 import os
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
-from config import BOT_TOKEN, ADMIN_USERNAME, ESCALATION_KEYWORDS, CONFIDENCE_THRESHOLD, CSV_PATH
-from kb_loader import ProductKB
-from fastapi import FastAPI
+import sys
+import threading
+import time
+from contextlib import asynccontextmanager
+
 import uvicorn
+from aiogram import Bot, Dispatcher, F
+from aiogram.enums import ParseMode
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message
+from aiogram.client.default import DefaultBotProperties
+from fastapi import FastAPI
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# ─── Логирование ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger("mangal_craft")
 
-logging.info("📦 ЗАГРУЗКА...")
+# ─── Импорт конфига и kb_loader ──────────────────────────────────────────────
+try:
+    from config import (
+        BOT_TOKEN,
+        ADMIN_USERNAME,
+        ESCALATION_KEYWORDS,
+        CONFIDENCE_THRESHOLD,
+        CSV_PATH,
+    )
+    logger.info("✅ config.py загружен успешно")
+except ImportError as e:
+    logger.critical(f"❌ Не могу импортировать config.py: {e}")
+    sys.exit(1)
 
 try:
-    kb = ProductKB(CSV_PATH)
-    logging.info(f"✅ БАЗА ЗАГРУЖЕНА! Товаров: {len(kb.products)}")
-except Exception as e:
-    logging.error(f"❌ ОШИБКА БАЗЫ: {e}")
-    kb = None
+    from kb_loader import search_products  # возвращает list[dict] с полями name/price/description/score
+    logger.info("✅ kb_loader.py загружен успешно")
+except ImportError as e:
+    logger.critical(f"❌ Не могу импортировать kb_loader.py: {e}")
+    sys.exit(1)
 
-def calculate_confidence(query: str, results: list) -> float:
-    if not results or kb is None:
-        return 0.0
-    q_words = set(kb.normalize(query).split())
-    best = results[0]
-    title = kb.normalize(best.get('Title', ''))
-    matches = len(q_words & set(title.split()))
-    return min(1.0, matches / max(1, len(q_words)))
+# ─── Глобальный флаг: не допускаем двойного старта polling ──────────────────
+_polling_started = False
+_polling_lock = threading.Lock()
 
-def needs_escalation(query: str, confidence: float) -> bool:
-    query_lower = query.lower()
-    if any(kw in query_lower for kw in ESCALATION_KEYWORDS):
-        return True
-    if confidence < CONFIDENCE_THRESHOLD:
-        return True
-    return False
+# ─── Инициализация бота и диспетчера ─────────────────────────────────────────
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+)
+dp = Dispatcher()
 
-@dp.message(CommandStart)
-async def cmd_start(message: types.Message):
-    logging.info(f"✅ /start от {message.from_user.id}")
+# ════════════════════════════════════════════════════════════════════════════
+# HANDLERS
+# ════════════════════════════════════════════════════════════════════════════
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message) -> None:
+    user = message.from_user
+    logger.info(f"📩 /start от {user.full_name} (id={user.id})")
+
+    text = (
+        "🔥 <b>Добро пожаловать в Mangal Craft!</b>\n\n"
+        "Мы предлагаем шашлычные наборы, шампуры и аксессуары для барбекю.\n\n"
+        "💬 <b>Просто напишите что ищете</b>, например:\n"
+        "  • <i>шампуры для люля</i>\n"
+        "  • <i>мангал складной</i>\n"
+        "  • <i>набор для барбекю</i>\n\n"
+        "Или напишите <b>оператор</b> — и я подключу специалиста."
+    )
+    await message.answer(text)
+    logger.info(f"✅ Приветствие отправлено пользователю {user.id}")
+
+
+@dp.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    logger.info(f"📩 /help от {message.from_user.id}")
     await message.answer(
-        "👋 Привет! Я бот-помощник 🔥 Mangal Craft.\n\n"
-        "Спрашивайте про шампуры, шашлычные деревья и вертела\n\n"
-        "Например:\n"
-        "• Какие шампуры для люля?\n"
-        "• Цена шашлычного дерева?\n\n"
-        "Если не найду ответ — подключу оператора 👨‍",
-        parse_mode="Markdown"
+        "ℹ️ <b>Как пользоваться ботом:</b>\n\n"
+        "Просто напишите название товара или категорию — я найду подходящие позиции в нашем каталоге.\n\n"
+        "Команды:\n"
+        "  /start — начало работы\n"
+        "  /help — эта справка\n\n"
+        "Для связи с оператором напишите: <b>оператор</b>"
     )
 
-@dp.message()
-async def handle_message(message: types.Message):
-    # Пропускаем команды
-    if message.text and message.text.startswith('/'):
-        return
-    
-    # Пропускаем не текст
-    if not message.text:
-        return
-    
-    logging.info(f"📩 !!! СООБЩЕНИЕ: {message.text} !!!")
-    
-    if kb is None:
-        logging.error("❌ БАЗА НЕ ЗАГРУЖЕНА!")
-        await message.answer("⚠️ Ошибка: база не загружена.")
-        return
-    
-    user_query = message.text.strip()
-    logging.info(f"💬 Поиск: {user_query}")
-    
-    try:
-        results = kb.search(user_query, top_k=3)
-        confidence = calculate_confidence(user_query, results)
-        logging.info(f"📊 Найдено: {len(results)}, уверенность: {confidence:.2f}")
-    except Exception as e:
-        logging.error(f"❌ ОШИБКА ПОИСКА: {e}")
-        await message.answer("❌ Ошибка.")
-        return
-    
-    if needs_escalation(user_query, confidence):
-        user_info = f"@{message.from_user.username}" if message.from_user.username else f"{message.from_user.first_name}"
-        try:
-            await bot.send_message(chat_id=ADMIN_USERNAME, text=f"🔔 {user_info}: {user_query}")
-            await message.answer("👨‍ Подключаю оператора...")
-        except Exception as e:
-            logging.error(f"❌ ОШИБКА: {e}")
-        return
-    
-    if results:
-        logging.info(f"✅ Отправка {len(results)} товаров")
-        answer = "🔍 Нашёл:\n\n"
-        for p in results:
-            answer += kb.format_product(p) + "\n\n"
-        await message.answer(answer, parse_mode="Markdown")
-    else:
-        logging.info(f"❌ Ничего не найдено")
-        await message.answer("🤔 Не нашёл. Напишите «оператор».")
 
-app = FastAPI()
+@dp.message(F.text)
+async def handle_text(message: Message) -> None:
+    user = message.from_user
+    text = message.text.strip()
+    logger.info(f"📩 !!! СООБЩЕНИЕ от {user.full_name} (id={user.id}): «{text}»")
+
+    # ── 1. Проверка на эскалацию ─────────────────────────────────────────────
+    lower = text.lower()
+    if any(kw in lower for kw in ESCALATION_KEYWORDS):
+        logger.info(f"🚨 Эскалация по ключевым словам от пользователя {user.id}")
+        await escalate(message, reason="ключевое слово")
+        return
+
+    # ── 2. Поиск товаров ─────────────────────────────────────────────────────
+    logger.info(f"🔍 Ищу в каталоге: «{text}»")
+    try:
+        results = search_products(text)
+    except Exception as e:
+        logger.error(f"❌ Ошибка поиска: {e}", exc_info=True)
+        await message.answer("⚠️ Временная ошибка при поиске. Попробуйте ещё раз.")
+        return
+
+    logger.info(f"🔍 Результатов поиска: {len(results)}")
+
+    # ── 3. Нет результатов или низкая уверенность ────────────────────────────
+    if not results:
+        logger.info(f"⚠️ Ничего не найдено для: «{text}»")
+        await message.answer(
+            f"😔 По запросу «<b>{text}</b>» ничего не нашлось.\n\n"
+            "Попробуйте другое название или напишите <b>оператор</b> — помогу лично."
+        )
+        return
+
+    # Проверяем confidence первого (лучшего) результата
+    best_score = results[0].get("score", 1.0)
+    logger.info(f"📊 Лучший score: {best_score:.2f} (порог: {CONFIDENCE_THRESHOLD})")
+
+    if best_score < CONFIDENCE_THRESHOLD:
+        logger.info(f"⚠️ Низкая уверенность ({best_score:.2f}) — эскалация")
+        await escalate(message, reason=f"низкая уверенность ({best_score:.2f})")
+        return
+
+    # ── 4. Отправляем результаты ─────────────────────────────────────────────
+    response_lines = [f"🛒 <b>Нашёл по запросу «{text}»:</b>\n"]
+
+    for i, item in enumerate(results[:5], 1):
+        name = item.get("name", "Без названия")
+        price = item.get("price", "—")
+        description = item.get("description", "")
+
+        # Форматируем цену
+        if isinstance(price, (int, float)):
+            price_str = f"{price:,.0f} ₽".replace(",", " ")
+        else:
+            price_str = str(price)
+
+        block = f"<b>{i}. {name}</b>\n💰 {price_str}"
+        if description:
+            # Обрезаем длинное описание
+            desc_short = description[:150] + "…" if len(description) > 150 else description
+            block += f"\n{desc_short}"
+        response_lines.append(block)
+
+    response_lines.append("\n✍️ Напишите название товара точнее или задайте вопрос оператору.")
+    response = "\n\n".join(response_lines)
+
+    await message.answer(response)
+    logger.info(f"✅ Отправлено {len(results[:5])} товаров пользователю {user.id}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ЭСКАЛАЦИЯ
+# ════════════════════════════════════════════════════════════════════════════
+
+async def escalate(message: Message, reason: str = "") -> None:
+    """Уведомляет пользователя и отправляет уведомление администратору."""
+    user = message.from_user
+
+    # Сообщение пользователю
+    await message.answer(
+        "👨‍💼 <b>Подключаю специалиста...</b>\n\n"
+        "Оператор свяжется с вами в ближайшее время. "
+        "Обычно это занимает несколько минут."
+    )
+    logger.info(f"📤 Эскалация: отправляю уведомление @{ADMIN_USERNAME}")
+
+    # Уведомление администратору
+    admin_handle = ADMIN_USERNAME.lstrip("@")
+    admin_text = (
+        f"🚨 <b>Новый запрос к оператору</b>\n\n"
+        f"👤 Пользователь: {user.full_name}"
+        + (f" (@{user.username})" if user.username else "")
+        + f"\n🆔 ID: <code>{user.id}</code>\n"
+        f"💬 Сообщение: «{message.text}»\n"
+        f"📌 Причина: {reason}\n\n"
+        f"➡️ Ответьте пользователю в Telegram."
+    )
+
+    try:
+        await bot.send_message(
+            chat_id=f"@{admin_handle}",
+            text=admin_text,
+        )
+        logger.info(f"✅ Уведомление отправлено @{admin_handle}")
+    except Exception as e:
+        logger.error(f"❌ Не могу уведомить @{admin_handle}: {e}")
+        # Не падаем — пользователь уже получил ответ
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# POLLING — запускается ОДИН раз
+# ════════════════════════════════════════════════════════════════════════════
+
+async def start_polling_once() -> None:
+    """
+    Запускает polling. Использует глобальный флаг чтобы гарантировать
+    единственный запуск даже если lifespan вызывается несколько раз.
+    """
+    global _polling_started
+
+    with _polling_lock:
+        if _polling_started:
+            logger.warning("⚠️ Polling уже запущен — пропускаю повторный старт")
+            return
+        _polling_started = True
+
+    logger.info("🤖 Инициализация бота...")
+
+    # Сбрасываем webhook (важно! иначе polling не работает если был webhook)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Webhook удалён, pending updates сброшены")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при удалении webhook: {e}")
+
+    # Небольшая пауза чтобы Telegram успел закрыть старые соединения
+    await asyncio.sleep(2)
+
+    logger.info("🚀 Запускаю polling...")
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+            handle_signals=False,   # НЕ перехватываем сигналы — это делает uvicorn
+        )
+    except asyncio.CancelledError:
+        logger.info("⏹️ Polling остановлен (CancelledError)")
+    except Exception as e:
+        logger.error(f"💥 Критическая ошибка polling: {e}", exc_info=True)
+    finally:
+        logger.info("🔌 Закрываю сессию бота...")
+        await bot.session.close()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# FASTAPI — держит процесс живым на Render
+# ════════════════════════════════════════════════════════════════════════════
+
+_polling_task: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Запускает polling при старте FastAPI и останавливает при завершении."""
+    global _polling_task
+    logger.info("🌐 FastAPI lifespan: запуск")
+
+    # Запускаем polling как фоновый task
+    _polling_task = asyncio.create_task(start_polling_once(), name="bot_polling")
+    logger.info("✅ Задача polling создана")
+
+    yield  # сервер работает
+
+    # Завершение
+    logger.info("🌐 FastAPI lifespan: завершение")
+    if _polling_task and not _polling_task.done():
+        _polling_task.cancel()
+        try:
+            await asyncio.wait_for(_polling_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+    logger.info("👋 Бот остановлен")
+
+
+app = FastAPI(title="Mangal Craft Bot", lifespan=lifespan)
+
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "products": len(kb.products) if kb else 0}
+    return {"status": "ok", "service": "Mangal Craft Bot"}
 
-async def start_bot():
-    logging.info("🚀 ЗАПУСК...")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await asyncio.sleep(2)
-    await dp.start_polling(bot, drop_pending_updates=True)
+
+@app.get("/health")
+async def health():
+    """Render пингует этот endpoint — отвечаем 200 чтобы не усыплял сервис."""
+    polling_alive = _polling_task is not None and not _polling_task.done()
+    return {
+        "status": "healthy",
+        "polling": "running" if polling_alive else "stopped",
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ТОЧКА ВХОДА
+# ════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import threading
-    
-    def run_server():
-        port = int(os.getenv("PORT", 8000))
-        uvicorn.run(app, host="0.0.0.0", port=port)
-    
-    threading.Thread(target=run_server, daemon=True).start()
-    asyncio.run(start_bot())
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"🌐 Запуск uvicorn на порту {port}")
+    uvicorn.run(
+        "bot:app",
+        host="0.0.0.0",
+        port=port,
+        # workers=1 — ОБЯЗАТЕЛЬНО! Иначе несколько worker-процессов = конфликт
+        workers=1,
+        log_level="info",
+    )
