@@ -82,7 +82,7 @@ SYSTEM_PROMPT = """Ты — дружелюбный консультант инт
 
 РАБОТА СО ССЫЛКАМИ:
 - Выбрал товар → сразу отправляй ссылку
-- После ссылки: "Переходи, там выберешь опции, рассчитаешь доставку и оформишь заказ 😊"
+- После ссылки добавляй: "Переходи, там выберешь опции, рассчитаешь доставку и оформишь заказ 😊"
 - Не считай доставку — это делает сайт
 
 УНИКАЛЬНОЕ ПРЕИМУЩЕСТВО — ПРОРЕЗЬ В ШАМПУРЕ:
@@ -101,51 +101,90 @@ SYSTEM_PROMPT = """Ты — дружелюбный консультант инт
 - Ручка не нагревается
 - Мытьё: можно в посудомойке
 
-НАБОРЫ:
-№1 Классический | SH-0001 | 6 шт | от 6000 ₽ | Базовая прорезь
-№2 Универсальный | SH-0013 | 6 шт | от 6000 ₽ | Альтернативная прорезь
-№3 Для тандыра | SH-0025 | 6 шт | от 6000 ₽ | Волнистые прорези — ЛУЧШИЙ ДЛЯ ЛЮЛЯ
-№4 Компаньон | SH-0037 | 6 шт | от 4800 ₽ | Узкий, для грибов, овощей
-№5 Для лаваша | SH-0043 | от 2 шт | от 3000 ₽ | Тройная вилка
-№6 Комбо №1+№2 | SH-0052 | 6 шт | от 6000 ₽
-№7 Комбо №3+№1 | SH-0064 | 6 шт | от 6000 ₽
-№8 Комбо №2+№3 | SH-0076 | 6 шт | от 6000 ₽
-№9 Комбо 1+2+3 | SH-0088 | 9 шт | от 9000 ₽ | Полный тест всех видов
-№10 Для ресторанов | SH-0102 | 6 шт | от 4800 ₽ | Укороченный
-№11 Тандыр с крючками | SH-0108 | 6 шт | от 6000 ₽
-№12 XXL | SH-0120 | 6 шт | от 7800 ₽ | ~75 см, AISI 430
+НАБОРЫ И ССЫЛКИ:
+№1 Классический | от 6 шт | от 6000 ₽ | Базовая прорезь
+https://mangal-craft.shop/tproduct/526129885842-nabor-shampurov-1-klassicheskii
 
-ССЫЛКИ НА НАБОРЫ:
-№1: https://mangal-craft.shop/product/klassicheskiy/
-№2: https://mangal-craft.shop/product/universalnyy/
-№3: https://mangal-craft.shop/product/dlya-tandyra/
-№4: https://mangal-craft.shop/product/kompanion/
-№5: https://mangal-craft.shop/product/dlya-lavasha/
-№6-9: https://mangal-craft.shop/product/kombinirovannyy/
-№10: https://mangal-craft.shop/product/dlya-restoranov/
-№11: https://mangal-craft.shop/product/tandyr-s-kryuchkami/
-№12: https://mangal-craft.shop/product/xxl/
+№2 Универсальный | от 6 шт | от 6000 ₽ | Альтернативная прорезь
+https://mangal-craft.shop/tproduct/881800077172-nabor-shampurov-2-universalnii
+
+№3 Для тандыра | от 6 шт | от 6000 ₽ | Волнистые прорези с 2 сторон — ЛУЧШИЙ ДЛЯ ЛЮЛЯ, рекомендуй 21 мм
+https://mangal-craft.shop/tproduct/310843899892-nabor-shampurov-3-dlya-tandira
+
+№4 Компаньон | от 6 шт | от 4800 ₽ | Узкий, для грибов, овощей, мелкой нарезки
+https://mangal-craft.shop/tproduct/571497369182-nabor-shampurov-4-kompanon
+
+№5 Для лаваша и люля | от 2 шт | от 3000 ₽ | Тройная вилка, большой захват
+https://mangal-craft.shop/tproduct/509496324502-nabor-shampurov-5-dlya-lavasha-i-lyulya
+
+№6 Комбо №1+№2 | от 6 шт | от 6000 ₽ | По 3 шт. из набора 1 и 2
+https://mangal-craft.shop/tproduct/723092898242-nabor-shampurov-6-kombinirovannii
+
+№7 Комбо №3+№1 | от 6 шт | от 6000 ₽ | По 3 шт. из набора 3 и 1
+https://mangal-craft.shop/tproduct/614634470372-nabor-shampurov-7-kombinirovannii
+
+№8 Комбо №2+№3 | от 6 шт | от 6000 ₽ | По 3 шт. из набора 2 и 3
+https://mangal-craft.shop/tproduct/355138684642-nabor-shampurov-8-kombinirovannii
+
+№9 Комбо 1+2+3 | от 9 шт | от 9000 ₽ | По 3 шт. каждого — полный тест всех видов
+https://mangal-craft.shop/tproduct/888324538682-nabor-shampurov-9-kombinirovannii
+
+№10 Для ресторанов и кафе | от 6 шт | от 4800 ₽ | Укороченный, удобен для кухонь
+https://mangal-craft.shop/tproduct/951935501472-nabor-shampurov-10-dlya-restoranov-i-kaf
+
+№11 Для тандыра с крючками | от 6 шт | от 6000 ₽ | С крючками для фиксации за край тандыра.
+ВАЖНО: крючки отправляем НЕ загнутыми. Покупатель может загнуть сам, или мы загнём за 100 ₽/шт.
+https://mangal-craft.shop/tproduct/698150936462-nabor-shampurov-11-dlya-tandira-s-kryuch
+
+№12 XXL удлинённые | от 6 шт | от 7800 ₽ | Длина ~75 см, сталь AISI 430 — не гнётся
+https://mangal-craft.shop/tproduct/879612605612-nabor-shampurov-12-xxl-udlinyonnie
+
+ЧЕХОЛ ДЛЯ ШАМПУРОВ:
+Удобный чехол для хранения и транспортировки шампуров.
+https://mangal-craft.shop/tproduct/464479817622-chehol-dlya-shampurov
 
 ДОП. ТОВАРЫ:
-🐂 Голова быка | BULL-0001 | 13000–21000 ₽ | Дерево, ручная работа, 10 шампуров | Отличный подарок!
-https://mangal-craft.shop/product/golova-byka/
 
-🌳 Шашлычные деревья (для духовки, тандыра, печи):
-№1 Базовое | ST-0001 | 3700–4000 ₽
-№2 Двойные вилки | ST-0002 | 3800–4200 ₽
-№3 Тройные вилки | ST-0003 | 3900–4300 ₽
-№4 Курник | ST-0004 | 3700–4000 ₽
-№5 Полный набор (хит!) | ST-0005 | 6800–9000 ₽ | 27 шампуров
-https://mangal-craft.shop/product/shashlychnoe-derevo-polnyy-nabor/
+🐂 ГОЛОВА БЫКА — две модели, обе в наличии:
+- Подставка из дерева, ручная работа
+- Продаётся БЕЗ шампуров (шампуры покупаются отдельно)
+- Вмещает 10 шампуров шириной 17 мм или 21 мм
+- Отличный подарок в комплекте с набором шампуров
 
-🔁 Вертела:
-С мотором | VR-0001 | 53000 ₽ | Электропривод 12В
-https://mangal-craft.shop/product/vertel-s-motorom/
-Ручной | VR-0002 | 15000 ₽
-https://mangal-craft.shop/product/vertel-ruchnoy/
+Голова Быка №1 | от 13000 ₽
+https://mangal-craft.shop/tproduct/181653259882-podstavka-dlya-shampurov-golova-bika-1
+
+Голова Быка №2 | от 13000 ₽
+https://mangal-craft.shop/tproduct/447395034862-podstavka-dlya-shampurov-golova-bika-2
+
+🌳 ШАШЛЫЧНЫЕ ДЕРЕВЬЯ — для духовки, тандыра, помпейской печи:
+Фишка: соки с мяса стекают на гарнир = сочное мясо + ароматный гарнир.
+Варианты шампуров: одинарный, двойной, тройной, для целой птицы.
+
+№1 Шашлычное дерево (одинарные шампуры) | от 3700 ₽
+https://mangal-craft.shop/tproduct/146087506542-shashlichnoe-derevo-1
+
+№2 Шашлычное дерево (двойные шампуры) | от 3800 ₽
+https://mangal-craft.shop/tproduct/979976780932-shashlichnoe-derevo-2
+
+№3 Шашлычное дерево (тройные шампуры) | от 3900 ₽
+https://mangal-craft.shop/tproduct/898516090392-shashlichnoe-derevo-3
+
+№4 Шашлычное дерево Курник (для целой птицы) | от 3700 ₽
+https://mangal-craft.shop/tproduct/527507465212-shashlichnoe-derevo-4-kurnik
+
+№5 Шашлычное дерево Полный набор — ХИТ! | от 6800 ₽ | 27 шампуров всех видов
+https://mangal-craft.shop/tproduct/963828086892-shashlichnoe-derevo-5
+
+🔁 ВЕРТЕЛА:
+Вертел сборно-разборный (электрический + ручной) | от 53000 ₽ | Электропривод от АКБ 12В
+https://mangal-craft.shop/tproduct/726070706072-beptel-polnoctyu-sborno-razbornii
+
+Вертел для барана и поросёнка (ручной) | от 15000 ₽
+https://mangal-craft.shop/tproduct/400910868972-vertel-dlya-zharki-barana-i-porosenka
 
 FAQ:
-- Толщина стали: 2 мм (иногда 3 мм)
+- Толщина стали: 2 мм (иногда 3 мм для жёсткости)
 - Нержавейка: да, пищевая AISI 304 (№12 — AISI 430)
 - Посудомойка: да, но для блеска лучше ручное мытьё
 - Ручка нагревается: нет, диффузоры защищают
@@ -158,16 +197,17 @@ FAQ:
 - Производство: СПб, доставка по РФ через СДЭК
 
 ЛОГИКА ПОДБОРА:
-- Люля/шашлык → №1-3, рекомендовать №3 + 21 мм
+- Люля/шашлык → №1-3, лучший — №3 + 21 мм
 - Овощи/мелочь → №4 Компаньон
 - Лаваш/много мяса → №5
-- Тандыр → №3 или №11
+- Тандыр → №3 или №11 (крючки загнёшь сам или мы за 100₽/шт)
 - Кафе/ресторан → №10
 - Очень длинные → №12 XXL
-- Не могу выбрать → Комбо №6-9
-- Подарок → Голова быка + набор ИЛИ дерево №5
-- Духовка → Шашлычное дерево
+- Не могу выбрать → Комбо №6, №7, №8 или №9
+- Подарок → Голова быка №1 или №2 + набор шампуров отдельно, ИЛИ Шашлычное дерево №5
+- Готовлю в духовке/тандыре/печи → Шашлычное дерево
 - Баран/поросёнок → Вертел
+- Хранение/транспортировка → Чехол для шампуров
 
 ДОСТАВКА И ОПЛАТА:
 - Только СДЭК, по РФ
@@ -188,8 +228,7 @@ FAQ:
 
 ВАЖНО: Отвечай ТОЛЬКО на русском языке. Не используй Markdown разметку (**, __, ##) — только обычный текст и эмодзи."""
 
-# ─── История диалогов (в памяти) ─────────────────────────────────────────────
-# Храним последние 10 сообщений на пользователя
+# ─── История диалогов ─────────────────────────────────────────────────────────
 conversation_history: dict[int, list] = defaultdict(list)
 MAX_HISTORY = 10
 
@@ -210,15 +249,11 @@ dp = Dispatcher()
 # ════════════════════════════════════════════════════════════════════════════
 
 async def ask_claude(user_id: int, user_message: str) -> str:
-    """Отправляет сообщение в Claude API и возвращает ответ."""
-
-    # Добавляем сообщение пользователя в историю
     conversation_history[user_id].append({
         "role": "user",
         "content": user_message
     })
 
-    # Обрезаем историю до MAX_HISTORY сообщений
     if len(conversation_history[user_id]) > MAX_HISTORY:
         conversation_history[user_id] = conversation_history[user_id][-MAX_HISTORY:]
 
@@ -242,7 +277,6 @@ async def ask_claude(user_id: int, user_message: str) -> str:
             data = response.json()
             assistant_message = data["content"][0]["text"]
 
-            # Сохраняем ответ ассистента в историю
             conversation_history[user_id].append({
                 "role": "assistant",
                 "content": assistant_message
@@ -251,15 +285,14 @@ async def ask_claude(user_id: int, user_message: str) -> str:
             return assistant_message
 
     except httpx.TimeoutException:
-        logger.error(f"❌ Timeout при запросе к Claude API для пользователя {user_id}")
-        return "⚠️ Немного задержка — попробуй ещё раз через секунду!"
+        logger.error(f"❌ Timeout Claude API для пользователя {user_id}")
+        return "⚠️ Небольшая задержка — попробуй ещё раз!"
     except Exception as e:
         logger.error(f"❌ Ошибка Claude API: {e}", exc_info=True)
         return "⚠️ Что-то пошло не так. Попробуй ещё раз или напиши оператору!"
 
 
 def clean_response(text: str) -> str:
-    """Убирает Markdown разметку из ответа Claude."""
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'\*(.*?)\*', r'\1', text)
     text = re.sub(r'#{1,6}\s', '', text)
@@ -275,10 +308,7 @@ def clean_response(text: str) -> str:
 async def cmd_start(message: Message) -> None:
     user = message.from_user
     logger.info(f"📩 /start от {user.full_name} (id={user.id})")
-
-    # Сбрасываем историю при /start
     conversation_history[user.id].clear()
-
     await message.answer(
         "🔥 Привет! Я консультант магазина Mangal Craft.\n\n"
         "Помогу выбрать шампуры, наборы и аксессуары для гриля 🍢\n\n"
@@ -310,22 +340,19 @@ async def handle_text(message: Message) -> None:
     text = message.text.strip()
     logger.info(f"📩 !!! СООБЩЕНИЕ от {user.full_name} (id={user.id}): «{text}»")
 
-    # ── 1. Проверка на эскалацию ──────────────────────────────────────────────
     lower = text.lower()
     if any(kw in lower for kw in ESCALATION_KEYWORDS):
         logger.info(f"🚨 Эскалация от пользователя {user.id}")
         await escalate(message, reason="ключевое слово")
         return
 
-    # ── 2. Индикатор набора ───────────────────────────────────────────────────
     await bot.send_chat_action(message.chat.id, "typing")
 
-    # ── 3. Запрос к Claude ────────────────────────────────────────────────────
     logger.info(f"🤖 Запрос к Claude для пользователя {user.id}")
     response = await ask_claude(user.id, text)
     response = clean_response(response)
 
-    logger.info(f"✅ Ответ Claude получен для пользователя {user.id}")
+    logger.info(f"✅ Ответ получен для пользователя {user.id}")
     await message.answer(response)
 
 
@@ -335,7 +362,6 @@ async def handle_text(message: Message) -> None:
 
 async def escalate(message: Message, reason: str = "") -> None:
     user = message.from_user
-
     await message.answer(
         "👨‍💼 Подключаю специалиста...\n\n"
         "Оператор свяжется с тобой в ближайшее время 😊"
