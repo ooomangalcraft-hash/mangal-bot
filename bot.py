@@ -457,6 +457,8 @@ async def root():
 
 
 @app.get("/health")
+@app.get("/health")
+@app.head("/health")
 async def health():
     polling_alive = _polling_task is not None and not _polling_task.done()
     return {
