@@ -15,7 +15,7 @@ from collections import defaultdict
 import httpx
 import uvicorn
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from aiogram.client.default import DefaultBotProperties
@@ -268,6 +268,30 @@ FAQ:
 
 ВАЖНО: Отвечай ТОЛЬКО на русском языке. Не используй Markdown разметку (**, __, ##) — только обычный текст и эмодзи."""
 
+# ─── Промпт для группы — решает отвечать или нет ─────────────────────────────
+GROUP_FILTER_PROMPT = """Ты модератор Telegram-группы магазина шампуров Mangal Craft.
+
+Тебе приходит комментарий из группы. Твоя задача — решить: нужно ли на него отвечать?
+
+Отвечай ТОЛЬКО словом YES или NO.
+
+Отвечай YES если комментарий:
+- Вопрос о товарах, шампурах, мангалах, грилях
+- Вопрос о заказе, доставке, оплате, ценах
+- Вопрос о характеристиках, размерах, материалах
+- Вопрос о рецептах, готовке на шампурах
+- Жалоба или проблема с заказом
+- Просьба о помощи с выбором
+
+Отвечай NO если комментарий:
+- Просто эмодзи или короткая реакция (👍, 🔥, ок, супер)
+- Общий комплимент без вопроса (красиво!, молодцы!)
+- Офтоп не связанный с магазином
+- Спам
+- Приветствие без вопроса (привет, добрый день)
+
+Комментарий: """
+
 # ─── История диалогов ─────────────────────────────────────────────────────────
 conversation_history: dict[int, list] = defaultdict(list)
 MAX_HISTORY = 10
@@ -332,6 +356,35 @@ async def ask_claude(user_id: int, user_message: str) -> str:
         return "⚠️ Что-то пошло не так. Напиши @SVKolosov или позвони +7 (965) 014-19-28"
 
 
+async def should_reply_in_group(text: str) -> bool:
+    """Спрашивает Claude: стоит ли отвечать на этот комментарий в группе."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 10,
+                    "messages": [{
+                        "role": "user",
+                        "content": GROUP_FILTER_PROMPT + text
+                    }],
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer = data["content"][0]["text"].strip().upper()
+            return answer.startswith("YES")
+    except Exception as e:
+        logger.error(f"❌ Ошибка фильтра группы: {e}")
+        return False
+
+
 def clean_response(text: str) -> str:
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'\*(.*?)\*', r'\1', text)
@@ -374,26 +427,59 @@ async def cmd_help(message: Message) -> None:
     )
 
 
-@dp.message(F.text)
-async def handle_text(message: Message) -> None:
+# ── Личные сообщения (личка + сообщения канала) ───────────────────────────────
+@dp.message(F.chat.type == ChatType.PRIVATE)
+async def handle_private(message: Message) -> None:
     user = message.from_user
-    text = message.text.strip()
-    logger.info(f"📩 !!! СООБЩЕНИЕ от {user.full_name} (id={user.id}): «{text}»")
+    text = message.text
+    if not text:
+        return
+
+    text = text.strip()
+    logger.info(f"📩 ЛИЧКА от {user.full_name} (id={user.id}): «{text}»")
 
     lower = text.lower()
     if any(kw in lower for kw in ESCALATION_KEYWORDS):
-        logger.info(f"🚨 Эскалация от пользователя {user.id}")
+        logger.info(f"🚨 Эскалация от {user.id}")
         await escalate(message, reason="ключевое слово")
         return
 
     await bot.send_chat_action(message.chat.id, "typing")
-
-    logger.info(f"🤖 Запрос к Claude для пользователя {user.id}")
     response = await ask_claude(user.id, text)
     response = clean_response(response)
-
-    logger.info(f"✅ Ответ получен для пользователя {user.id}")
     await message.answer(response)
+    logger.info(f"✅ Ответ отправлен {user.id}")
+
+
+# ── Сообщения в группе обсуждений ────────────────────────────────────────────
+@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def handle_group(message: Message) -> None:
+    text = message.text
+    if not text:
+        return
+
+    text = text.strip()
+    user = message.from_user
+    logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
+
+    # Проверяем стоит ли отвечать
+    should_reply = await should_reply_in_group(text)
+    if not should_reply:
+        logger.info(f"⏭️ Пропускаю сообщение в группе: «{text}»")
+        return
+
+    logger.info(f"✅ Отвечаю на сообщение в группе: «{text}»")
+
+    lower = text.lower()
+    if any(kw in lower for kw in ESCALATION_KEYWORDS):
+        await escalate(message, reason="ключевое слово в группе")
+        return
+
+    await bot.send_chat_action(message.chat.id, "typing")
+    user_id = user.id if user else message.chat.id
+    response = await ask_claude(user_id, text)
+    response = clean_response(response)
+    await message.reply(response)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -414,9 +500,9 @@ async def escalate(message: Message, reason: str = "") -> None:
     admin_handle = ADMIN_USERNAME.lstrip("@")
     admin_text = (
         f"🚨 <b>Запрос к оператору</b>\n\n"
-        f"👤 {user.full_name}"
-        + (f" (@{user.username})" if user.username else "")
-        + f"\n🆔 <code>{user.id}</code>\n"
+        f"👤 {user.full_name if user else 'Неизвестный'}"
+        + (f" (@{user.username})" if user and user.username else "")
+        + f"\n🆔 <code>{user.id if user else '?'}</code>\n"
         f"💬 «{message.text}»\n"
         f"📌 Причина: {reason}"
     )
@@ -455,7 +541,11 @@ async def start_polling_once() -> None:
     try:
         await dp.start_polling(
             bot,
-            allowed_updates=["message", "callback_query"],
+            allowed_updates=[
+                "message",
+                "callback_query",
+                "channel_post",
+            ],
             drop_pending_updates=True,
             handle_signals=False,
         )
