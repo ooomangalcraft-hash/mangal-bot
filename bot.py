@@ -309,6 +309,32 @@ dp = Dispatcher()
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ
+# ════════════════════════════════════════════════════════════════════════════
+
+async def safe_send(message: Message, text: str) -> None:
+    """Отправляет сообщение — работает для лички, сообщений канала и групп."""
+    # Пробуем reply с thread_id
+    try:
+        kwargs = {}
+        if message.message_thread_id:
+            kwargs["message_thread_id"] = message.message_thread_id
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            **kwargs
+        )
+        return
+    except Exception:
+        pass
+    # Fallback — просто отправить в чат
+    try:
+        await bot.send_message(chat_id=message.chat.id, text=text)
+    except Exception as e:
+        logger.error(f"❌ Не могу отправить сообщение: {e}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # CLAUDE AI
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -401,7 +427,7 @@ async def cmd_start(message: Message) -> None:
     user = message.from_user
     logger.info(f"📩 /start от {user.full_name} (id={user.id})")
     conversation_history[user.id].clear()
-    await message.answer(
+    await safe_send(message,
         "🔥 Привет! Я консультант магазина Mangal Craft.\n\n"
         "Помогу выбрать шампуры, наборы и аксессуары для гриля 🍢\n\n"
         "Просто напиши что ищешь — например:\n"
@@ -416,7 +442,7 @@ async def cmd_start(message: Message) -> None:
 @dp.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     logger.info(f"📩 /help от {message.from_user.id}")
-    await message.answer(
+    await safe_send(message,
         "ℹ️ Я помогу выбрать шампуры и аксессуары для гриля.\n\n"
         "Просто напиши что ищешь — отвечу как живой консультант!\n\n"
         "Команды:\n"
@@ -450,13 +476,7 @@ async def handle_private(message: Message) -> None:
 
     response = await ask_claude(user.id, text)
     response = clean_response(response)
-
-    # reply вместо answer — правильно работает в сообщениях канала
-    try:
-        await message.reply(response)
-    except Exception:
-        await message.answer(response)
-
+    await safe_send(message, response)
     logger.info(f"✅ Ответ отправлен {user.id}")
 
 
@@ -491,7 +511,7 @@ async def handle_group(message: Message) -> None:
     user_id = user.id if user else message.chat.id
     response = await ask_claude(user_id, text)
     response = clean_response(response)
-    await message.reply(response)
+    await safe_send(message, response)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -500,22 +520,15 @@ async def handle_group(message: Message) -> None:
 
 async def escalate(message: Message, reason: str = "") -> None:
     user = message.from_user
-    try:
-        await message.reply(
-            "👨‍💼 Подключаю специалиста...\n\n"
-            "Напиши напрямую: @SVKolosov (Сергей)\n"
-            "Или позвони: +7 (965) 014-19-28 (Владимир) 😊\n\n"
-            "💡 Кстати, мы делаем шампуры по индивидуальным размерам — "
-            "уточни у Владимира!"
-        )
-    except Exception:
-        await message.answer(
-            "👨‍💼 Подключаю специалиста...\n\n"
-            "Напиши напрямую: @SVKolosov (Сергей)\n"
-            "Или позвони: +7 (965) 014-19-28 (Владимир) 😊"
-        )
-
+    await safe_send(message,
+        "👨‍💼 Подключаю специалиста...\n\n"
+        "Напиши напрямую: @SVKolosov (Сергей)\n"
+        "Или позвони: +7 (965) 014-19-28 (Владимир) 😊\n\n"
+        "💡 Кстати, мы делаем шампуры по индивидуальным размерам — "
+        "уточни у Владимира!"
+    )
     logger.info(f"📤 Эскалация → @{ADMIN_USERNAME}")
+
     admin_handle = ADMIN_USERNAME.lstrip("@")
     admin_text = (
         f"🚨 <b>Запрос к оператору</b>\n\n"
