@@ -268,7 +268,7 @@ FAQ:
 
 ВАЖНО: Отвечай ТОЛЬКО на русском языке. Не используй Markdown разметку (**, __, ##) — только обычный текст и эмодзи."""
 
-# ─── Промпт для группы — решает отвечать или нет ─────────────────────────────
+# ─── Промпт для группы ────────────────────────────────────────────────────────
 GROUP_FILTER_PROMPT = """Ты модератор Telegram-группы магазина шампуров Mangal Craft.
 
 Тебе приходит комментарий из группы. Твоя задача — решить: нужно ли на него отвечать?
@@ -357,7 +357,6 @@ async def ask_claude(user_id: int, user_message: str) -> str:
 
 
 async def should_reply_in_group(text: str) -> bool:
-    """Спрашивает Claude: стоит ли отвечать на этот комментарий в группе."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -427,7 +426,7 @@ async def cmd_help(message: Message) -> None:
     )
 
 
-# ── Личные сообщения (личка + сообщения канала) ───────────────────────────────
+# ── Личные сообщения и сообщения канала ──────────────────────────────────────
 @dp.message(F.chat.type == ChatType.PRIVATE)
 async def handle_private(message: Message) -> None:
     user = message.from_user
@@ -444,7 +443,12 @@ async def handle_private(message: Message) -> None:
         await escalate(message, reason="ключевое слово")
         return
 
-    await bot.send_chat_action(message.chat.id, "typing")
+    # typing не работает в сообщениях канала — игнорируем ошибку
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+
     response = await ask_claude(user.id, text)
     response = clean_response(response)
     await message.answer(response)
@@ -462,20 +466,23 @@ async def handle_group(message: Message) -> None:
     user = message.from_user
     logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
 
-    # Проверяем стоит ли отвечать
     should_reply = await should_reply_in_group(text)
     if not should_reply:
-        logger.info(f"⏭️ Пропускаю сообщение в группе: «{text}»")
+        logger.info(f"⏭️ Пропускаю: «{text}»")
         return
 
-    logger.info(f"✅ Отвечаю на сообщение в группе: «{text}»")
+    logger.info(f"✅ Отвечаю в группе: «{text}»")
 
     lower = text.lower()
     if any(kw in lower for kw in ESCALATION_KEYWORDS):
         await escalate(message, reason="ключевое слово в группе")
         return
 
-    await bot.send_chat_action(message.chat.id, "typing")
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+
     user_id = user.id if user else message.chat.id
     response = await ask_claude(user_id, text)
     response = clean_response(response)
