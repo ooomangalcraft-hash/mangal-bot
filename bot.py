@@ -443,7 +443,6 @@ async def handle_private(message: Message) -> None:
         await escalate(message, reason="ключевое слово")
         return
 
-    # typing не работает в сообщениях канала — игнорируем ошибку
     try:
         await bot.send_chat_action(message.chat.id, "typing")
     except Exception:
@@ -451,7 +450,13 @@ async def handle_private(message: Message) -> None:
 
     response = await ask_claude(user.id, text)
     response = clean_response(response)
-    await message.answer(response)
+
+    # reply вместо answer — правильно работает в сообщениях канала
+    try:
+        await message.reply(response)
+    except Exception:
+        await message.answer(response)
+
     logger.info(f"✅ Ответ отправлен {user.id}")
 
 
@@ -495,15 +500,22 @@ async def handle_group(message: Message) -> None:
 
 async def escalate(message: Message, reason: str = "") -> None:
     user = message.from_user
-    await message.answer(
-        "👨‍💼 Подключаю специалиста...\n\n"
-        "Напиши напрямую: @SVKolosov (Сергей)\n"
-        "Или позвони: +7 (965) 014-19-28 (Владимир) 😊\n\n"
-        "💡 Кстати, мы делаем шампуры по индивидуальным размерам — "
-        "уточни у Владимира!"
-    )
-    logger.info(f"📤 Эскалация → @{ADMIN_USERNAME}")
+    try:
+        await message.reply(
+            "👨‍💼 Подключаю специалиста...\n\n"
+            "Напиши напрямую: @SVKolosov (Сергей)\n"
+            "Или позвони: +7 (965) 014-19-28 (Владимир) 😊\n\n"
+            "💡 Кстати, мы делаем шампуры по индивидуальным размерам — "
+            "уточни у Владимира!"
+        )
+    except Exception:
+        await message.answer(
+            "👨‍💼 Подключаю специалиста...\n\n"
+            "Напиши напрямую: @SVKolosov (Сергей)\n"
+            "Или позвони: +7 (965) 014-19-28 (Владимир) 😊"
+        )
 
+    logger.info(f"📤 Эскалация → @{ADMIN_USERNAME}")
     admin_handle = ADMIN_USERNAME.lstrip("@")
     admin_text = (
         f"🚨 <b>Запрос к оператору</b>\n\n"
