@@ -486,9 +486,17 @@ async def handle_group(message: Message) -> None:
     text = text.strip()
     user = message.from_user
 
-    # Игнорируем сообщения от самого бота
     if user and user.is_bot:
         return
+
+    # ДИАГНОСТИКА — удалим после отладки
+    logger.info(
+        f"🔍 DEBUG: chat_id={message.chat.id}, "
+        f"thread_id={message.message_thread_id}, "
+        f"chat_type={message.chat.type}, "
+        f"is_topic={message.is_topic_message}, "
+        f"text={text[:50]}"
+    )
 
     logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
 
