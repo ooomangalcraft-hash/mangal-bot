@@ -510,7 +510,11 @@ async def handle_group(message: Message) -> None:
         return
 
     logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
-
+logger.info(
+    f"🔍 DEBUG: message_id={message.message_id}, "
+    f"sender_chat={message.sender_chat}, "
+    f"reply_to={message.reply_to_message}"
+)
     should_reply = await should_reply_in_group(text)
     if not should_reply:
         logger.info(f"⏭️ Пропускаю: «{text}»")
