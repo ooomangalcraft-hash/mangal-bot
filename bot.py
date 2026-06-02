@@ -316,18 +316,38 @@ dp = Dispatcher()
 
 async def safe_send(message: Message, text: str) -> None:
     """Отправляет сообщение — работает для лички, сообщений канала и групп."""
+
+    # Вариант 1: ответ на конкретное сообщение (reply)
     try:
-        kwargs = {}
-        if message.message_thread_id:
-            kwargs["message_thread_id"] = message.message_thread_id
-        await bot.send_message(chat_id=message.chat.id, text=text, **kwargs)
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            reply_to_message_id=message.message_id
+        )
+        logger.info(f"✅ Сообщение отправлено через reply_to_message_id")
         return
-    except Exception:
-        pass
+    except Exception as e1:
+        logger.warning(f"⚠️ safe_send вариант 1 не сработал: {e1}")
+
+    # Вариант 2: с thread_id если есть
+    if message.message_thread_id:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=text,
+                message_thread_id=message.message_thread_id
+            )
+            logger.info(f"✅ Сообщение отправлено через message_thread_id")
+            return
+        except Exception as e2:
+            logger.warning(f"⚠️ safe_send вариант 2 не сработал: {e2}")
+
+    # Вариант 3: просто в чат
     try:
         await bot.send_message(chat_id=message.chat.id, text=text)
-    except Exception as e:
-        logger.error(f"❌ Не могу отправить сообщение: {e}")
+        logger.info(f"✅ Сообщение отправлено напрямую в чат")
+    except Exception as e3:
+        logger.error(f"❌ Не могу отправить сообщение: {e3}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -488,15 +508,6 @@ async def handle_group(message: Message) -> None:
 
     if user and user.is_bot:
         return
-
-    # ДИАГНОСТИКА — удалим после отладки
-    logger.info(
-        f"🔍 DEBUG: chat_id={message.chat.id}, "
-        f"thread_id={message.message_thread_id}, "
-        f"chat_type={message.chat.type}, "
-        f"is_topic={message.is_topic_message}, "
-        f"text={text[:50]}"
-    )
 
     logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
 
