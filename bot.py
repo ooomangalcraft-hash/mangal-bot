@@ -289,6 +289,7 @@ GROUP_FILTER_PROMPT = """Ты модератор Telegram-группы мага�
 - Очень короткая реакция без контекста (ок, супер, класс, лайк)
 - Явный офтоп не связанный с едой, готовкой или нашими товарами
 - Спам или реклама
+- Сообщение от канала (не от живого человека)
 
 Сомневаешься — отвечай YES. Лучше ответить лишний раз, чем пропустить покупателя.
 
@@ -324,7 +325,7 @@ async def safe_send(message: Message, text: str) -> None:
             text=text,
             reply_to_message_id=message.message_id
         )
-        logger.info(f"✅ Сообщение отправлено через reply_to_message_id")
+        logger.info("✅ Сообщение отправлено через reply_to_message_id")
         return
     except Exception as e1:
         logger.warning(f"⚠️ safe_send вариант 1 не сработал: {e1}")
@@ -337,7 +338,7 @@ async def safe_send(message: Message, text: str) -> None:
                 text=text,
                 message_thread_id=message.message_thread_id
             )
-            logger.info(f"✅ Сообщение отправлено через message_thread_id")
+            logger.info("✅ Сообщение отправлено через message_thread_id")
             return
         except Exception as e2:
             logger.warning(f"⚠️ safe_send вариант 2 не сработал: {e2}")
@@ -345,7 +346,7 @@ async def safe_send(message: Message, text: str) -> None:
     # Вариант 3: просто в чат
     try:
         await bot.send_message(chat_id=message.chat.id, text=text)
-        logger.info(f"✅ Сообщение отправлено напрямую в чат")
+        logger.info("✅ Сообщение отправлено напрямую в чат")
     except Exception as e3:
         logger.error(f"❌ Не могу отправить сообщение: {e3}")
 
@@ -468,7 +469,7 @@ async def cmd_help(message: Message) -> None:
     )
 
 
-# ── Личные сообщения и сообщения канала ──────────────────────────────────────
+# ── Личные сообщения ──────────────────────────────────────────────────────────
 @dp.message(F.chat.type == ChatType.PRIVATE)
 async def handle_private(message: Message) -> None:
     user = message.from_user
@@ -506,15 +507,17 @@ async def handle_group(message: Message) -> None:
     text = text.strip()
     user = message.from_user
 
+    # Игнорируем сообщения от ботов
     if user and user.is_bot:
         return
 
+    # Игнорируем сообщения от каналов (sender_chat означает что пишет канал, не человек)
+    if message.sender_chat:
+        logger.info(f"⏭️ Игнорирую сообщение от канала: {message.sender_chat.title}")
+        return
+
     logger.info(f"📩 ГРУППА от {user.full_name if user else 'Unknown'}: «{text}»")
-logger.info(
-    f"🔍 DEBUG: message_id={message.message_id}, "
-    f"sender_chat={message.sender_chat}, "
-    f"reply_to={message.reply_to_message}"
-)
+
     should_reply = await should_reply_in_group(text)
     if not should_reply:
         logger.info(f"⏭️ Пропускаю: «{text}»")
