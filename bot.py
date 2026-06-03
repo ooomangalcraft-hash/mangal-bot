@@ -479,15 +479,23 @@ async def notify_operator_escalation(session: EscalationSession, trigger_text: s
         f"{'─' * 30}\n"
         f"{history_text}\n"
         f"{'─' * 30}\n\n"
-        f"💬 <b>Триггер:</b> «{trigger_text}»\n\n"
-        f"✏️ Чтобы ответить клиенту прямо в виджет:\n"
-        f"<code>/reply {session.session_id[:8]} Ваш текст здесь</code>"
+        f"💬 <b>Триггер:</b> «{trigger_text}»"
+    )
+
+    reply_prompt = (
+        f"✏️ Нажмите, чтобы ответить клиенту:\n\n"
+        f"<code>/reply {session.session_id[:8]} Здравствуйте! Сейчас изучу Ваш вопрос и отвечу.</code>"
     )
 
     try:
         await bot.send_message(
             chat_id=OPERATOR_TELEGRAM_ID,
             text=text,
+            parse_mode=ParseMode.HTML
+        )
+        await bot.send_message(
+            chat_id=OPERATOR_TELEGRAM_ID,
+            text=reply_prompt,
             parse_mode=ParseMode.HTML
         )
         logger.info(f"✅ Оператор уведомлён об эскалации {session.session_id[:8]}")
