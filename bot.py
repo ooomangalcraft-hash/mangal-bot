@@ -9,6 +9,8 @@ import os
 import re
 import sys
 import threading
+import uuid
+import time
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
@@ -57,6 +59,9 @@ try:
 except Exception as e:
     logger.critical(f"❌ Ошибка загрузки ProductKB: {e}")
     sys.exit(1)
+
+# ─── ID оператора ─────────────────────────────────────────────────────────────
+OPERATOR_TELEGRAM_ID = 684062021  # Сергей @SVKolosov
 
 # ─── Системный промпт ─────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Ты — дружелюбный консультант интернет-магазина Mangal Craft (mangal-craft.shop).
@@ -246,9 +251,52 @@ NO если:
 
 Сообщение: """
 
-# ─── История диалогов ─────────────────────────────────────────────────────────
+# ─── История диалогов (Telegram) ──────────────────────────────────────────────
 conversation_history: dict[int, list] = defaultdict(list)
 MAX_HISTORY = 10
+
+# ════════════════════════════════════════════════════════════════════════════
+# ХРАНИЛИЩЕ ЭСКАЛАЦИЙ ВИДЖЕТА
+# ════════════════════════════════════════════════════════════════════════════
+
+class EscalationSession:
+    """Активная эскалация: пользователь на сайте ждёт ответа оператора."""
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.history: list[dict] = []          # полная история чата до эскалации
+        self.operator_messages: list[dict] = [] # ответы оператора (для polling)
+        self.created_at = time.time()
+        self.last_activity = time.time()
+        self.operator_notified = False
+
+# session_id -> EscalationSession
+active_escalations: dict[str, EscalationSession] = {}
+# session_id -> список сообщений из виджета после эскалации (для истории)
+escalation_pending_msgs: dict[str, list[str]] = defaultdict(list)
+
+ESCALATION_TTL = 3600  # сессия живёт 1 час без активности
+
+def cleanup_old_sessions():
+    """Удаляем устаревшие эскалации."""
+    now = time.time()
+    to_delete = [
+        sid for sid, s in active_escalations.items()
+        if now - s.last_activity > ESCALATION_TTL
+    ]
+    for sid in to_delete:
+        del active_escalations[sid]
+        if sid in escalation_pending_msgs:
+            del escalation_pending_msgs[sid]
+
+WIDGET_ESCALATION_KEYWORDS = [
+    "оператор", "человек", "менеджер", "живой", "реальный",
+    "сотрудник", "специалист", "владимир", "сергей", "позови",
+    "хочу поговорить", "соедини", "передай"
+]
+
+def is_escalation_request(text: str) -> bool:
+    t = text.lower()
+    return any(kw in t for kw in WIDGET_ESCALATION_KEYWORDS)
 
 # ─── Защита от двойного запуска polling ──────────────────────────────────────
 _polling_started = False
@@ -398,7 +446,57 @@ def clean_response(text: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# HANDLERS
+# УВЕДОМЛЕНИЕ ОПЕРАТОРА ОБ ЭСКАЛАЦИИ С САЙТА
+# ════════════════════════════════════════════════════════════════════════════
+
+async def notify_operator_escalation(session: EscalationSession, trigger_text: str) -> None:
+    """Отправляет оператору уведомление с полной историей диалога."""
+    if session.operator_notified:
+        return
+    session.operator_notified = True
+
+    # Форматируем историю диалога
+    history_lines = []
+    for msg in session.history:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "user":
+            history_lines.append(f"👤 Клиент: {content}")
+        elif role == "assistant":
+            history_lines.append(f"🤖 Бот: {content}")
+
+    history_text = "\n\n".join(history_lines) if history_lines else "(история пуста)"
+
+    # Ограничиваем длину — Telegram лимит 4096 символов
+    if len(history_text) > 2500:
+        history_text = "...(сокращено)\n\n" + history_text[-2500:]
+
+    text = (
+        f"🚨 <b>Клиент просит живого оператора!</b>\n"
+        f"🌐 Источник: виджет на сайте\n"
+        f"🆔 Сессия: <code>{session.session_id[:8]}</code>\n\n"
+        f"<b>История диалога:</b>\n"
+        f"{'─' * 30}\n"
+        f"{history_text}\n"
+        f"{'─' * 30}\n\n"
+        f"💬 <b>Триггер:</b> «{trigger_text}»\n\n"
+        f"✏️ Чтобы ответить клиенту прямо в виджет:\n"
+        f"<code>/reply {session.session_id[:8]} Ваш текст здесь</code>"
+    )
+
+    try:
+        await bot.send_message(
+            chat_id=OPERATOR_TELEGRAM_ID,
+            text=text,
+            parse_mode=ParseMode.HTML
+        )
+        logger.info(f"✅ Оператор уведомлён об эскалации {session.session_id[:8]}")
+    except Exception as e:
+        logger.error(f"❌ Не могу уведомить оператора: {e}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TELEGRAM HANDLERS
 # ════════════════════════════════════════════════════════════════════════════
 
 @dp.message(CommandStart())
@@ -424,6 +522,76 @@ async def cmd_help(message: Message) -> None:
         "Просто напиши что ищешь — отвечу как живой консультант!\n\n"
         "Для связи с оператором напиши: оператор"
     )
+
+
+@dp.message(Command("reply"))
+async def cmd_reply(message: Message) -> None:
+    """
+    Оператор отвечает клиенту виджета.
+    Формат: /reply SESSION8 Текст ответа
+    """
+    if message.from_user.id != OPERATOR_TELEGRAM_ID:
+        return  # только оператор
+
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        await safe_send(message,
+            "❌ Формат: /reply SESSION8 Текст ответа\n\n"
+            "SESSION8 — первые 8 символов ID сессии из уведомления."
+        )
+        return
+
+    session_prefix = parts[1].strip()
+    reply_text = parts[2].strip()
+
+    # Ищем сессию по префиксу
+    matched = None
+    for sid, session in active_escalations.items():
+        if sid.startswith(session_prefix) or sid[:8] == session_prefix:
+            matched = session
+            break
+
+    if not matched:
+        await safe_send(message,
+            f"❌ Сессия <code>{session_prefix}</code> не найдена или уже закрыта.\n"
+            f"Активные сессии: {len(active_escalations)}"
+        )
+        return
+
+    # Добавляем ответ оператора в очередь для polling
+    matched.operator_messages.append({
+        "role": "operator",
+        "content": reply_text,
+        "timestamp": time.time()
+    })
+    matched.last_activity = time.time()
+
+    await safe_send(message, f"✅ Ответ отправлен клиенту!\n\n💬 «{reply_text}»")
+    logger.info(f"✅ Оператор ответил в сессию {session_prefix}: «{reply_text}»")
+
+
+@dp.message(Command("sessions"))
+async def cmd_sessions(message: Message) -> None:
+    """Показывает активные эскалации."""
+    if message.from_user.id != OPERATOR_TELEGRAM_ID:
+        return
+
+    cleanup_old_sessions()
+
+    if not active_escalations:
+        await safe_send(message, "📭 Нет активных эскалаций с сайта.")
+        return
+
+    lines = [f"📋 <b>Активные сессии ({len(active_escalations)}):</b>\n"]
+    for sid, s in active_escalations.items():
+        age = int((time.time() - s.created_at) / 60)
+        msgs_count = len(s.history)
+        lines.append(
+            f"• <code>{sid[:8]}</code> — {msgs_count} сообщ., {age} мин. назад\n"
+            f"  /reply {sid[:8]} Ваш текст"
+        )
+
+    await safe_send(message, "\n".join(lines))
 
 
 @dp.message(F.chat.type == ChatType.PRIVATE)
@@ -485,7 +653,7 @@ async def handle_group(message: Message) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# ЭСКАЛАЦИЯ
+# ЭСКАЛАЦИЯ (Telegram)
 # ════════════════════════════════════════════════════════════════════════════
 
 async def escalate(message: Message, reason: str = "") -> None:
@@ -573,7 +741,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Mangal Craft Bot", lifespan=lifespan)
 
-# CORS — разрешаем запросы с сайта
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://mangal-craft.shop", "https://www.mangal-craft.shop"],
@@ -596,35 +763,119 @@ async def health():
 
 @app.post("/widget-chat")
 async def widget_chat(request: Request):
-    """Endpoint для виджета на сайте."""
+    """
+    Основной endpoint виджета.
+    Принимает: { messages, session_id }
+    Возвращает: { reply, escalated, session_id }
+    """
     try:
+        cleanup_old_sessions()
         body = await request.json()
         messages = body.get("messages", [])
-        if not messages:
-            return JSONResponse({"reply": "Напишите ваш вопрос!"})
+        session_id = body.get("session_id", str(uuid.uuid4()))
 
-        # Берём только последние 10 сообщений
+        if not messages:
+            return JSONResponse({"reply": "Напишите ваш вопрос!", "escalated": False, "session_id": session_id})
+
         if len(messages) > 10:
             messages = messages[-10:]
 
-        reply = await ask_claude_direct(messages)
-        reply = clean_response(reply)
+        last_user_msg = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user_msg = m.get("content", "")
+                break
 
-        # Уведомляем администратора о новом диалоге с сайта (только первое сообщение)
-        if len(messages) == 1:
+        # Проверяем — эскалация?
+        if is_escalation_request(last_user_msg):
+            # Создаём или обновляем сессию эскалации
+            if session_id not in active_escalations:
+                session = EscalationSession(session_id)
+                active_escalations[session_id] = session
+            else:
+                session = active_escalations[session_id]
+
+            session.history = messages.copy()
+            session.last_activity = time.time()
+
+            # Уведомляем оператора
+            await notify_operator_escalation(session, last_user_msg)
+
+            return JSONResponse({
+                "reply": "👨‍💼 Подключаю живого специалиста!\n\nСейчас напишу Сергею — он ответит здесь в течение нескольких минут.\n\nЕсли срочно — звоните: +7 (965) 014-19-28 (Владимир) 🔥",
+                "escalated": True,
+                "session_id": session_id
+            })
+
+        # Если сессия уже в режиме эскалации — добавляем сообщение в очередь
+        if session_id in active_escalations:
+            session = active_escalations[session_id]
+            session.history.append({"role": "user", "content": last_user_msg})
+            session.last_activity = time.time()
+
+            # Уведомляем оператора о новом сообщении
             try:
-                user_text = messages[0].get("content", "")
                 await bot.send_message(
-                    chat_id=f"@{ADMIN_USERNAME.lstrip('@')}",
-                    text=f"🌐 <b>Новый диалог на сайте</b>\n\n💬 «{user_text}»\n\n<i>Бот ответил автоматически</i>"
+                    chat_id=OPERATOR_TELEGRAM_ID,
+                    text=f"💬 <b>Новое сообщение от клиента</b>\n"
+                         f"Сессия: <code>{session_id[:8]}</code>\n\n"
+                         f"👤 «{last_user_msg}»\n\n"
+                         f"<code>/reply {session_id[:8]} Ваш ответ</code>",
+                    parse_mode=ParseMode.HTML
                 )
             except Exception:
                 pass
 
-        return JSONResponse({"reply": reply})
+            return JSONResponse({
+                "reply": "⏳ Специалист уже подключён — отвечу совсем скоро!",
+                "escalated": True,
+                "session_id": session_id
+            })
+
+        # Обычный режим — отвечает Claude
+        reply = await ask_claude_direct(messages)
+        reply = clean_response(reply)
+
+        return JSONResponse({
+            "reply": reply,
+            "escalated": False,
+            "session_id": session_id
+        })
+
     except Exception as e:
         logger.error(f"❌ Ошибка widget-chat: {e}")
-        return JSONResponse({"reply": "⚠️ Небольшая задержка — попробуйте ещё раз!"})
+        return JSONResponse({"reply": "⚠️ Небольшая задержка — попробуйте ещё раз!", "escalated": False})
+
+
+@app.get("/get-messages/{session_id}")
+async def get_operator_messages(session_id: str):
+    """
+    Виджет polling — проверяет, есть ли новые ответы от оператора.
+    Возвращает и очищает очередь сообщений.
+    """
+    if session_id not in active_escalations:
+        return JSONResponse({"messages": [], "active": False})
+
+    session = active_escalations[session_id]
+    session.last_activity = time.time()
+
+    # Забираем накопленные ответы оператора
+    new_messages = session.operator_messages.copy()
+    session.operator_messages.clear()
+
+    return JSONResponse({
+        "messages": new_messages,
+        "active": True
+    })
+
+
+@app.post("/close-session/{session_id}")
+async def close_session(session_id: str):
+    """Виджет сообщает, что пользователь закрыл чат."""
+    if session_id in active_escalations:
+        del active_escalations[session_id]
+        logger.info(f"🔒 Сессия {session_id[:8]} закрыта")
+    return JSONResponse({"status": "closed"})
 
 
 # ════════════════════════════════════════════════════════════════════════════
